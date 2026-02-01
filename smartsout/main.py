@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 from scrapper.smartsocut.niche_finder import run_niche_finder_export
-
+from scrapper.smartsocut.rankmaker import run_keyword_tools_export
 # Load environment variables
 load_dotenv()
 
@@ -60,6 +60,57 @@ async def scrape_subcategory(request: ScrapeRequest, background_tasks: Backgroun
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+@app.post("/smartscout/keyword-tools")
+async def scrape_keyword_tools(request: ScrapeRequest, background_tasks: BackgroundTasks):
+    """
+    Download CSV from SmartScout Keyword Tools and return it.
+    File is automatically deleted after sending.
+    """
+    try:
+        # Run scraper
+        result = await asyncio.get_event_loop().run_in_executor(
+            SCRAPER_EXECUTOR,
+            run_keyword_tools_export,
+            request.search_text,
+            request.username,
+            request.password,
+            None,
+            True
+        )
+        
+        file_path = result["file_path"]
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="File was not created")
+        
+        background_tasks.add_task(cleanup_file, file_path)
+        
+        return FileResponse(
+            path=file_path,
+            filename=result["file_name"],
+            media_type="text/csv"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+
+def cleanup_file(file_path: str):
+    """Delete file after it's been sent"""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"🗑️ Deleted: {file_path}")
+    except Exception as e:
+        print(f"⚠️ Could not delete {file_path}: {e}")
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
+
 
 
 def cleanup_file(file_path: str):
