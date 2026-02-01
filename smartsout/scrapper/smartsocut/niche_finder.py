@@ -3,113 +3,89 @@ import traceback
 import time
 import os
 import glob
+import shutil
 from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
 from .auth import get_authenticated_driver
-from .bob_url import debug_blob_issue
 
 
 def setup_download_directory(download_path: str = None):
     """Setup download directory and return path"""
     if download_path is None:
-        # Create a downloads directory in the project
+        # Use project downloads directory
         download_path = os.path.join(os.path.dirname(__file__), "..", "downloads")
     
     os.makedirs(download_path, exist_ok=True)
     return download_path
 
 
-def get_latest_downloaded_file(download_path: str, pattern: str = "*.csv"):
-    """Get the most recently downloaded CSV file"""
-    # Wait for download to complete
-    time.sleep(5)
+def get_latest_downloaded_file(download_dir: str, pattern: str = "*.csv", timeout: int = 20):
+    """Get the most recently downloaded CSV file with timeout"""
+    print(f"  Checking for files in: {download_dir}")
     
-    files = glob.glob(os.path.join(download_path, pattern))
-    if not files:
-        return None
+    # Get initial file count
+    files_before = set(glob.glob(os.path.join(download_dir, pattern)))
+    files_before = {f for f in files_before if not f.endswith('.crdownload')}
     
-    # Get the most recent file
-    latest_file = max(files, key=os.path.getctime)
-    return latest_file
-
-
-def send_csv_file(file_path: str, search_text: str):
-    """
-    Send the CSV file via email or other method.
-    You'll need to implement this based on your needs.
-    """
-    try:
-        # TODO: Implement your file sending logic here
-        # Examples: Email, FTP, Cloud Storage, etc.
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        files_now = set(glob.glob(os.path.join(download_dir, pattern)))
+        files_now = {f for f in files_now if not f.endswith('.crdownload')}
         
-        # For now, just print file info
-        file_size = os.path.getsize(file_path)
-        print(f"📤 Sending file: {os.path.basename(file_path)}")
-        print(f"   Size: {file_size} bytes")
-        print(f"   Search term: {search_text}")
+        # Check if new file appeared
+        new_files = files_now - files_before
+        if new_files:
+            latest_file = max(new_files, key=os.path.getctime)
+            
+            # Verify file is complete (size not changing)
+            size1 = os.path.getsize(latest_file)
+            time.sleep(1)
+            size2 = os.path.getsize(latest_file)
+            
+            if size1 == size2 and size1 > 0:
+                return latest_file
         
-        # Example email sending (you'll need to install and configure)
-        # send_email_with_attachment(file_path, search_text)
-        
-        return True
-    except Exception as e:
-        print(f"❌ Error sending file: {e}")
-        return False
+        time.sleep(1)
+    
+    return None
 
-
-def cleanup_file(file_path: str):
-    """Delete the downloaded file after sending"""
-    try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-            print(f"🗑️ Cleaned up file: {os.path.basename(file_path)}")
-            return True
-    except Exception as e:
-        print(f"❌ Error cleaning up file: {e}")
-    return False
 
 def run_niche_finder_export(
     search_text: str, 
     username: str, 
     password: str,
     download_path: str = None,
-    send_file: bool = True,
-    cleanup: bool = True
+    cleanup_downloads: bool = True  # Delete from Downloads folder after copying
 ) -> dict:
     """
-    Full workflow:
-    1. Get authenticated browser
-    2. Go to Niche Finder tab
-    3. Apply subcategory filter
-    4. Click export CSV
-    5. Download file
-    6. Send file (optional)
-    7. Clean up (optional)
+    Full workflow - Downloads file and prepares it for API response
     """
-    # Setup download directory
-    download_path = setup_download_directory(download_path)
+    # Get system Downloads folder (where Chrome actually downloads)
+    system_downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     
-    # Configure Chrome to download to our directory
+    # Get desired output directory
+    output_path = setup_download_directory(download_path)
+    
+    # Get authenticated driver WITHOUT custom download directory
     driver = get_authenticated_driver(
         headless=False, 
         username=username, 
         password=password,
-        download_dir=download_path  # You'll need to update auth.py to accept this
+        download_dir=None
     )
     
     wait = WebDriverWait(driver, 25)
     downloaded_file = None
+    final_file_path = None
 
     try:
-        # Step 1: Go to subcategories page
         print("Step 1: Loading page...")
         driver.get("https://app.smartscout.com/app/subcategories")
         time.sleep(10)
         
-        # Step 2: Click 'Niche Finder' tab
         print("Step 2: Locating Niche Finder tab...")
         niche_tab = wait.until(
             EC.element_to_be_clickable(
@@ -118,18 +94,16 @@ def run_niche_finder_export(
         )
         niche_tab.click()
         time.sleep(10)
-        print("✓ Niche Finder tab clicked")
+        print("  ✅ Niche Finder tab clicked")
         
-        # Step 3: Open Filters panel
         print("Step 3: Opening Filters panel...")
         filters_button = wait.until(
             EC.element_to_be_clickable((By.XPATH, "//button[.//span[text()='Filters']]"))
         )
         filters_button.click()
         time.sleep(10)
-        print("✓ Filters panel opened")
+        print("  ✅ Filters panel opened")
         
-        # Step 4: Click "Subcategory" group header to expand it
         print("Step 4: Clicking 'Subcategory' filter group...")
         subcategory_header = wait.until(
             EC.element_to_be_clickable(
@@ -138,9 +112,8 @@ def run_niche_finder_export(
         )
         subcategory_header.click()
         time.sleep(10)
-        print("✓ Subcategory filter expanded")
+        print("  ✅ Subcategory filter expanded")
         
-        # Step 5: Wait for input field to appear and type into it
         print("Step 5: Waiting for filter input field...")
         filter_input = wait.until(
             EC.visibility_of_element_located(
@@ -148,21 +121,14 @@ def run_niche_finder_export(
             )
         )
         
-        print(f"✓ Found input field with id: {filter_input.get_attribute('id')}")
-        
-        # Clear the input
         filter_input.clear()
         time.sleep(1)
-        
-        # Type the search text
         filter_input.send_keys(search_text)
-        print(f"✓ Typed into filter: '{search_text}'")
-        time.sleep(3)
+        print(f"  ✅ Typed into filter: '{search_text}'")
+        time.sleep(5)
         
-        # Step 6: Two-step export process
-        print("Step 6: Triggering export and download...")
+        print("Step 6: Triggering export...")
         
-        # First: Click Excel side button
         print("  Clicking Excel side button...")
         excel_side_button = wait.until(
             EC.element_to_be_clickable(
@@ -171,9 +137,8 @@ def run_niche_finder_export(
         )
         excel_side_button.click()
         time.sleep(5)
-        print("  ✓ Excel side button clicked")
+        print("  ✅ Excel side button clicked")
         
-        # Second: Click CSV image/icon
         print("  Clicking CSV export image...")
         csv_image = wait.until(
             EC.element_to_be_clickable(
@@ -181,43 +146,41 @@ def run_niche_finder_export(
             )
         )
         csv_image.click()
-        debug_blob_issue(driver)
-        # Wait longer for download to complete
-        print("  Waiting for download to complete...")
-        time.sleep(15)
-        print("  ✓ Download initiated")
+        print("  ✅ CSV export clicked")
         
-        # Get the downloaded file
-        downloaded_file = get_latest_downloaded_file(download_path)
-        if not downloaded_file:
-            time.sleep(10)
-            downloaded_file = get_latest_downloaded_file(download_path)
+        # Wait for download in system Downloads folder
+        print("Step 7: Waiting for download...")
+        downloaded_file = get_latest_downloaded_file(system_downloads, timeout=20)
+        
         if not downloaded_file:
             raise Exception("No CSV file was downloaded")
         
-        print(f"✓ File downloaded: {os.path.basename(downloaded_file)}")
+        print(f"  ✅ File downloaded: {os.path.basename(downloaded_file)}")
+        
+        # Copy to output directory with custom name
+        new_filename = f"niche_finder_{search_text.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        final_file_path = os.path.join(output_path, new_filename)
+        shutil.copy2(downloaded_file, final_file_path)
+        print(f"  ✅ Copied to: {final_file_path}")
+        
+        # Delete from Downloads folder if requested
+        if cleanup_downloads:
+            try:
+                os.remove(downloaded_file)
+                print(f"  🗑️ Removed from Downloads folder")
+            except Exception as e:
+                print(f"  ⚠️ Could not remove from Downloads: {e}")
+        
+        file_size = os.path.getsize(final_file_path)
         
         result = {
             "status": "success",
             "message": f"Export completed for '{search_text}'",
-            "file_path": downloaded_file,
-            "file_name": os.path.basename(downloaded_file),
-            "file_size": os.path.getsize(downloaded_file) if downloaded_file else 0
+            "file_path": final_file_path,
+            "file_name": new_filename,
+            "file_size": file_size,
+            "timestamp": datetime.now().isoformat()
         }
-        
-        # Send the file if requested
-        if send_file and downloaded_file:
-            print("📤 Sending file...")
-            send_success = send_csv_file(downloaded_file, search_text)
-            result["sent"] = send_success
-            result["sent_time"] = datetime.now().isoformat()
-        
-        # Clean up if requested
-        if cleanup and downloaded_file:
-            print("🧹 Cleaning up...")
-            cleanup_success = cleanup_file(downloaded_file)
-            result["cleaned_up"] = cleanup_success
-            result["file_deleted"] = cleanup_success
         
         return result
 
@@ -225,15 +188,6 @@ def run_niche_finder_export(
         error_msg = f"Scraping failed: {str(e)}"
         print(error_msg)
         print(f"Traceback:\n{traceback.format_exc()}")
-        
-        # Try to save screenshot for debugging
-        try:
-            screenshot_path = os.path.join(download_path, f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-            driver.save_screenshot(screenshot_path)
-            print(f"Saved screenshot: {screenshot_path}")
-        except:
-            pass
-            
         raise Exception(error_msg) from e
 
     finally:

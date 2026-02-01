@@ -1,6 +1,8 @@
-# app/main.py
+# app/main.py (SIMPLIFIED - Uses project downloads folder)
 import asyncio
-from fastapi import FastAPI, HTTPException
+import os
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
@@ -15,47 +17,62 @@ SCRAPER_EXECUTOR = ThreadPoolExecutor(max_workers=2)
 # FastAPI app
 app = FastAPI(title="SmartScout Scraper API")
 
+
 class ScrapeRequest(BaseModel):
     search_text: str
     username: str 
     password: str
 
-@app.get("/Samrtsouct/subcategory")
-async def scrape_endpoint(request: ScrapeRequest):
+
+@app.post("/smartscout/subcategory")
+async def scrape_subcategory(request: ScrapeRequest, background_tasks: BackgroundTasks):
     """
-    Trigger SmartScout Niche Finder export.
-    Uses thread pool to avoid blocking the async event loop.
-    Max 2 concurrent scrapers allowed.
+    Download CSV from SmartScout and return it.
+    File is automatically deleted after sending.
     """
     try:
-        # Run blocking Selenium in a thread
+        # Run scraper - downloads to project's downloads folder
         result = await asyncio.get_event_loop().run_in_executor(
             SCRAPER_EXECUTOR,
             run_niche_finder_export,
             request.search_text,
             request.username,
-            request.password
+            request.password,
+            None,  # Use default download path
+            True   # cleanup_downloads = True
         )
-        return result
+        
+        file_path = result["file_path"]
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=500, detail="File was not created")
+        
+        # Schedule file deletion after response is sent
+        background_tasks.add_task(cleanup_file, file_path)
+        
+        # Return file
+        return FileResponse(
+            path=file_path,
+            filename=result["file_name"],
+            media_type="text/csv"
+        )
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
-    
-app.get("/Samrtsouct/labelranker    ")
-async def scrape_endpoint(request: ScrapeRequest):
-    """
-    Trigger SmartScout Niche Finder export.
-    Uses thread pool to avoid blocking the async event loop.
-    Max 2 concurrent scrapers allowed.
-    """
+
+
+def cleanup_file(file_path: str):
+    """Delete file after it's been sent"""
     try:
-        # Run blocking Selenium in a thread
-        result = await asyncio.get_event_loop().run_in_executor(
-            SCRAPER_EXECUTOR,
-            run_niche_finder_export,
-            request.search_text,
-            request.username,
-            request.password
-        )
-        return result
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            print(f"🗑️ Deleted: {file_path}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+        print(f"⚠️ Could not delete {file_path}: {e}")
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
