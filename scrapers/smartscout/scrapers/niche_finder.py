@@ -1,4 +1,4 @@
-# scrapper/smartscout/scraper.py
+# scrapers/smartscout/scrapers/niche_finder.py
 import traceback
 import time
 import os
@@ -8,14 +8,14 @@ from datetime import datetime
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from .auth import get_authenticated_driver
+from ..auth import get_authenticated_driver  # Corrected relative import
 
 
 def setup_download_directory(download_path: str = None):
     """Setup download directory and return path"""
     if download_path is None:
         # Use project downloads directory
-        download_path = os.path.join(os.path.dirname(__file__), "..", "downloads")
+        download_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "downloads")
     
     os.makedirs(download_path, exist_ok=True)
     return download_path

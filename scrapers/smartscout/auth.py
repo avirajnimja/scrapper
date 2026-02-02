@@ -10,7 +10,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-COOKIES_PATH = Path("data/smartscout_cookies.pkl")
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+COOKIES_PATH = PROJECT_ROOT / "data" / "smartscout_cookies.pkl"
 
 def get_chrome_driver(headless=True, download_dir=None):
     """Create a Chrome driver instance - SIMPLIFIED"""
@@ -53,40 +54,15 @@ def get_authenticated_driver(headless=False, username=None, password=None, downl
     """Return a driver that is already logged in."""
     driver = get_chrome_driver(headless=headless, download_dir=download_dir)
     
-    driver.get("https://app.smartscout.com/app/home")
+    if not username or not password:
+        driver.quit()
+        raise ValueError("Username and password required for login")
     
-    cookies_restored = False
-    if COOKIES_PATH.exists():
-        try:
-            cookies = pickle.load(open(COOKIES_PATH, "rb"))
-            driver.get("https://app.smartscout.com")
-            
-            for cookie in cookies:
-                if 'sameSite' in cookie and cookie['sameSite'] not in ['Strict', 'Lax', 'None']:
-                    cookie['sameSite'] = 'Lax'
-                driver.add_cookie(cookie)
-            
-            driver.get("https://app.smartscout.com/app/home")
-            
-            wait = WebDriverWait(driver, 10)
-            try:
-                wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//*[contains(text(), 'Dashboard') or contains(text(), 'Home')]")
-                ))
-                cookies_restored = True
-                print("✅ Reused existing session")
-            except:
-                cookies_restored = False
-                
-        except Exception as e:
-            print(f"⚠️ Cookie restore failed: {e}")
-            cookies_restored = False
-    
-    if not cookies_restored:
-        if not username or not password:
-            raise ValueError("Username and password required for fresh login")
-        
-        print("🔑 Performing fresh login...")
+    print("🔑 Performing fresh login...")
+    try:
         login_and_save_cookies(driver, username, password)
+    except Exception as e:
+        driver.quit()
+        raise e
     
     return driver
