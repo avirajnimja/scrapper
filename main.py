@@ -93,10 +93,6 @@ async def smartscout_rank_maker(request: ScrapeRequest, background_tasks: Backgr
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Placeholder endpoints for future scrapers
-@app.post("/smartscout/seller-search")
-async def smartscout_seller_search():
-    return {"message": "Endpoint not yet implemented"}
 
 @app.post("/smartscout/product-search")
 async def smartscout_product_search(request: ScrapeRequest, background_tasks: BackgroundTasks):
@@ -125,13 +121,13 @@ async def smartscout_product_search(request: ScrapeRequest, background_tasks: Ba
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/website2/scrape")
-async def website2_scrape():
-    return {"message": "Endpoint not yet implemented"}
+# @app.post("/website2/scrape")
+# async def website2_scrape():
+#     return {"message": "Endpoint not yet implemented"}
 
-@app.post("/website3/scrape")
-async def website3_scrape():
-    return {"message": "Endpoint not yet implemented"}
+# @app.post("/website3/scrape")
+# async def website3_scrape():
+#     return {"message": "Endpoint not yet implemented"}
 
 @app.get("/health")
 async def health_check():

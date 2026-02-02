@@ -60,21 +60,15 @@ def run_niche_finder_export(
     download_path: str = None,
     cleanup_downloads: bool = True  # Delete from Downloads folder after copying
 ) -> dict:
-    """
-    Full workflow - Downloads file and prepares it for API response
-    """
-    # Get system Downloads folder (where Chrome actually downloads)
-    system_downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-    
     # Get desired output directory
     output_path = setup_download_directory(download_path)
     
-    # Get authenticated driver WITHOUT custom download directory
+    # Get authenticated driver WITH custom download directory and HEADLESS
     driver = get_authenticated_driver(
-        headless=False, 
+        headless=True, 
         username=username, 
         password=password,
-        download_dir=None
+        download_dir=output_path
     )
     
     wait = WebDriverWait(driver, 25)
@@ -148,20 +142,22 @@ def run_niche_finder_export(
         csv_image.click()
         print("  ✅ CSV export clicked")
         
-        # Wait for download in system Downloads folder
+        # Wait for download in output folder
         print("Step 7: Waiting for download...")
-        downloaded_file = get_latest_downloaded_file(system_downloads, timeout=20)
+        # Use longer timeout and start marker for reliability
+        start_marker = time.time()
+        downloaded_file = get_latest_downloaded_file(output_path, timeout=60)
         
         if not downloaded_file:
             raise Exception("No CSV file was downloaded")
         
         print(f"  ✅ File downloaded: {os.path.basename(downloaded_file)}")
         
-        # Copy to output directory with custom name
+        # Rename to final path
         new_filename = f"niche_finder_{search_text.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         final_file_path = os.path.join(output_path, new_filename)
-        shutil.copy2(downloaded_file, final_file_path)
-        print(f"  ✅ Copied to: {final_file_path}")
+        shutil.move(downloaded_file, final_file_path)
+        print(f"  ✅ Renamed to: {final_file_path}")
         
         # Delete from Downloads folder if requested
         if cleanup_downloads:
