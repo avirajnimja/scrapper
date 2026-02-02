@@ -15,11 +15,12 @@ from ..auth import get_authenticated_driver  # Corrected relative import
 def setup_download_directory(download_path: str = None):
     """Setup download directory and return path"""
     if download_path is None:
-        # Use project downloads directory
-        download_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "downloads")
+        # Get absolute path of project root
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        download_path = os.path.join(project_root, "downloads")
     
     os.makedirs(download_path, exist_ok=True)
-    return download_path
+    return os.path.abspath(download_path)
 
 
 def get_latest_downloaded_file(download_dir: str, pattern: str = "*.csv", timeout: int = 20):
@@ -120,8 +121,16 @@ def run_keyword_tools_export(
         
         # Press Enter or wait for search to complete
         search_input.send_keys(Keys.RETURN)
+        print("  ✅ Search submitted, waiting for results...")
+        
+        # Wait for either the results table or "No results found"
+        try:
+            wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'ag-root-wrapper')]")))
+            print("  ✅ Search results loaded")
+        except:
+            print("  ⚠️ Results table not found within timeout, proceeding anyway...")
+            
         time.sleep(5)
-        print("  ✅ Search submitted")
         
         print("Step 5: Opening Filters panel...")
         filters_button = wait.until(
@@ -134,12 +143,17 @@ def run_keyword_tools_export(
         print("  ✅ Filters panel opened")
         
         print("Step 6: Expanding 'Latest Rank' filter group...")
+        time.sleep(5)  # Wait for panel to settle
         latest_rank_header = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//div[contains(@class, 'ag-group-title-bar')]//span[@class='ag-group-title' and text()='Latest Rank']")
+            EC.presence_of_element_located(
+                (By.XPATH, "//div[contains(@class, 'ag-group-title-bar') and .//span[text()='Latest Rank']]")
             )
         )
-        latest_rank_header.click()
+        # Try to click using JS in case it's obscured
+        driver.execute_script("arguments[0].scrollIntoView(true);", latest_rank_header)
+        time.sleep(1)
+        driver.execute_script("arguments[0].click();", latest_rank_header)
+        
         time.sleep(5)
         print("  ✅ Latest Rank filter expanded")
         
@@ -216,6 +230,17 @@ def run_keyword_tools_export(
         error_msg = f"Scraping failed: {str(e)}"
         print(error_msg)
         print(f"Traceback:\n{traceback.format_exc()}")
+        
+        try:
+            # Capture error screenshot
+            screenshot_name = f"rank_maker_error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            os.makedirs(output_path, exist_ok=True)
+            screenshot_path = os.path.join(output_path, screenshot_name)
+            driver.save_screenshot(screenshot_path)
+            print(f"Captured error screenshot: {screenshot_path}")
+        except:
+            pass
+            
         raise Exception(error_msg) from e
 
     finally:

@@ -22,6 +22,7 @@ class ScrapeRequest(BaseModel):
     search_text: str
     username: str 
     password: str
+    max_rank: int = 65  # Added optional max_rank
 
 def cleanup_file(file_path: str):
     """Delete file after it's been sent"""
@@ -71,7 +72,10 @@ async def smartscout_rank_maker(request: ScrapeRequest, background_tasks: Backgr
             run_keyword_tools_export,
             request.search_text,
             request.username,
-            request.password
+            request.password,
+            None,
+            True,
+            request.max_rank
         )
         
         file_path = result["file_path"]
