@@ -70,7 +70,7 @@ def run_product_search_export(
     output_path = setup_download_directory(download_path)
     
     driver = get_authenticated_driver(
-        headless=False, 
+        headless=True, 
         username=username, 
         password=password,
         download_dir=output_path

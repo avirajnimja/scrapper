@@ -76,7 +76,7 @@ def run_keyword_tools_export(
     
     # Get authenticated driver WITH custom download directory
     driver = get_authenticated_driver(
-        headless=False, 
+        headless=True, 
         username=username, 
         password=password,
         download_dir=output_path
