@@ -19,38 +19,43 @@ def setup_download_directory(download_path: str = None):
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         download_path = os.path.join(project_root, "downloads")
     
+    download_path = os.path.abspath(download_path)
     os.makedirs(download_path, exist_ok=True)
-    return os.path.abspath(download_path)
+    return download_path
 
 
-def get_latest_downloaded_file(download_dir: str, pattern: str = "*.csv", timeout: int = 20):
+def get_latest_downloaded_file(download_dir: str, pattern: str = "*.csv", timeout: int = 60, start_time_marker: float = None):
     """Get the most recently downloaded CSV file with timeout"""
     print(f"  Checking for files in: {download_dir}")
     
-    # Get initial file count
-    files_before = set(glob.glob(os.path.join(download_dir, pattern)))
-    files_before = {f for f in files_before if not f.endswith('.crdownload')}
-    
-    start_time = time.time()
-    
-    while time.time() - start_time < timeout:
-        files_now = set(glob.glob(os.path.join(download_dir, pattern)))
-        files_now = {f for f in files_now if not f.endswith('.crdownload')}
+    start_wait = time.time()
+    if start_time_marker is None:
+        start_time_marker = start_wait
+
+    while time.time() - start_wait < timeout:
+        files = glob.glob(os.path.join(download_dir, pattern))
+        # Exclude temporary download files
+        files = [f for f in files if not f.endswith('.crdownload') and not f.endswith('.tmp')]
         
-        # Check if new file appeared
-        new_files = files_now - files_before
-        if new_files:
-            latest_file = max(new_files, key=os.path.getctime)
+        if files:
+            # Filter for files created after we started the process
+            new_files = [f for f in files if os.path.getctime(f) >= start_time_marker - 2] # 2s buffer
             
-            # Verify file is complete (size not changing)
-            size1 = os.path.getsize(latest_file)
-            time.sleep(1)
-            size2 = os.path.getsize(latest_file)
-            
-            if size1 == size2 and size1 > 0:
-                return latest_file
+            if new_files:
+                latest_file = max(new_files, key=os.path.getctime)
+                
+                # Verify file is complete (size not changing and > 0)
+                try:
+                    size1 = os.path.getsize(latest_file)
+                    time.sleep(2)
+                    size2 = os.path.getsize(latest_file)
+                    
+                    if size1 == size2 and size1 > 0:
+                        return latest_file
+                except (OSError, FileNotFoundError):
+                    continue
         
-        time.sleep(1)
+        time.sleep(2)
     
     return None
 
@@ -66,22 +71,20 @@ def run_keyword_tools_export(
     """
     Full workflow for Keyword Tools/Rank Maker export
     """
-    # Get system Downloads folder (where Chrome actually downloads)
-    system_downloads = os.path.join(os.path.expanduser("~"), "Downloads")
-    
     # Get desired output directory
     output_path = setup_download_directory(download_path)
     
-    # Get authenticated driver WITHOUT custom download directory
+    # Get authenticated driver WITH custom download directory
     driver = get_authenticated_driver(
         headless=False, 
         username=username, 
         password=password,
-        download_dir=None
+        download_dir=output_path
     )
     
     wait = WebDriverWait(driver, 25)
     downloaded_file = None
+    start_marker = time.time()
 
     try:
         print("Step 1: Loading home page...")
@@ -188,28 +191,23 @@ def run_keyword_tools_export(
         csv_button.click()
         print("  ✅ CSV export clicked")
         
-        # Wait for download in system Downloads folder
+        # Wait for download in output directory
         print("Step 10: Waiting for download...")
-        downloaded_file = get_latest_downloaded_file(system_downloads, timeout=20)
+        downloaded_file = get_latest_downloaded_file(output_path, timeout=60, start_time_marker=start_marker)
         
         if not downloaded_file:
             raise Exception("No CSV file was downloaded")
         
         print(f"  ✅ File downloaded: {os.path.basename(downloaded_file)}")
         
-        # Copy to output directory with custom name
+        # Renaissance with final name
         new_filename = f"rank_maker_{search_text.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         final_file_path = os.path.join(output_path, new_filename)
-        shutil.copy2(downloaded_file, final_file_path)
-        print(f"  ✅ Copied to: {final_file_path}")
         
-        # Delete from Downloads folder if requested
-        if cleanup_downloads:
-            try:
-                os.remove(downloaded_file)
-                print(f"  🗑️ Removed from Downloads folder")
-            except Exception as e:
-                print(f"  ⚠️ Could not remove from Downloads: {e}")
+        # Only rename/move if it's not already named correctly (unlikely to be, but good practice)
+        if downloaded_file != final_file_path:
+            shutil.move(downloaded_file, final_file_path)
+            print(f"  ✅ Renamed to: {final_file_path}")
         
         file_size = os.path.getsize(final_file_path)
         

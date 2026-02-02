@@ -23,11 +23,21 @@ def get_chrome_driver(headless=True, download_dir=None):
     if headless:
         options.add_argument("--headless")
     
-    # MINIMAL options - let Chrome handle downloads naturally
+    # MINIMAL options
     options.add_argument("--start-maximized")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
+    
+    # Configure download behavior if directory provided
+    if download_dir:
+        prefs = {
+            "download.default_directory": download_dir,
+            "download.prompt_for_download": False,
+            "download.directory_upgrade": True,
+            "safebrowsing.enabled": True
+        }
+        options.add_experimental_option("prefs", prefs)
     
     return webdriver.Chrome(
         service=Service(ChromeDriverManager().install()), 
